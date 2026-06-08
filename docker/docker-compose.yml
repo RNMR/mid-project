@@ -1,0 +1,99 @@
+# ============================================================
+# docker-compose.yml
+# Paso 4 – Contenerización: stack completo en desarrollo local
+# Paso 5 – Orquestación: simula el despliegue en Kubernetes/Cloud Run
+# Paso 11 – Observabilidad: incluye Prometheus para métricas
+#
+# Servicios:
+#   etl      – corre run_etl.py una vez y termina (Job en K8s)
+#   api      – retrieval API en FastAPI (Deployment en K8s)
+#   prometheus – scrape de métricas (Paso 11)
+#
+# En producción (Paso 5 – Kubernetes):
+#   - etl  → K8s CronJob o AWS Step Functions (serverless)
+#   - api  → K8s Deployment + HPA (target CPU 60%)
+#   - GPU pods para reranker cross-encoder (Paso 5 – HPA + GPU)
+#   - Pod Anti-Affinity para distribuir réplicas entre AZs (Paso 5)
+# ============================================================
+
+version: "3.9"
+
+services:
+
+  # ── ETL Job: ingesta + embeddings + sharding ─────────────────────────────
+  etl:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.etl
+    image: distributed-rag-etl:latest
+    container_name: rag_etl
+    environment:
+      # Paso 4: secrets externos (en prod: AWS Secrets Manager / K8s Secrets)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - VECTOR_BACKEND=${VECTOR_BACKEND:-chromadb}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      # Montar datos fuente (read-only)
+      - ../LEGAL:/app/LEGAL:ro
+      - ../MANUALES:/app/MANUALES:ro
+      - ../DOC WEB:/app/DOC WEB:ro
+      - ../ENCUESTAS:/app/ENCUESTAS:ro
+      # Persistir vector store compartido con API
+      - chroma_data:/data/chroma_db
+    networks:
+      - rag_network
+    restart: "no"   # es un job, no un servicio continuo
+
+  # ── Retrieval API ─────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    image: distributed-rag-api:latest
+    container_name: rag_api
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - VECTOR_BACKEND=${VECTOR_BACKEND:-chromadb}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - METRICS_PORT=9090
+    volumes:
+      - chroma_data:/data/chroma_db
+    networks:
+      - rag_network
+    depends_on:
+      - etl
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    # Paso 5: en K8s reemplazar con HPA
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "2G"
+
+  # ── Prometheus – observabilidad (Paso 11) ─────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: rag_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - rag_network
+    profiles: ["observability"]   # activar con: docker compose --profile observability up
+
+# ── Volúmenes y redes ─────────────────────────────────────────────────────────
+volumes:
+  chroma_data:
+    driver: local
+
+networks:
+  rag_network:
+    driver: bridge

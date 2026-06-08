@@ -1,0 +1,45 @@
+# ============================================================
+# Proyecto 9 – Distributed RAG Architecture (Sharded Vector Stores)
+# requirements.txt
+# ============================================================
+#
+# Paso 2 – Selección de Modelo + Requerimientos de Infraestructura:
+#   Embeddings open-source: BAAI/bge-small-en-v1.5 (sentence-transformers)
+#   Vector store local (dev): ChromaDB  →  producción: Pinecone / Qdrant Distributed
+#   LLM: Claude API (Anthropic) para query-rewriting y respuesta final (Paso 9)
+#
+# Instalación:
+#   pip install -r requirements.txt
+
+# ── ETL & extracción documental (Paso 7) ─────────────────────────────────────
+pdfplumber>=0.10.0          # extracción de texto de PDFs con estructura
+pandas>=2.0.0               # manejo de CSVs (encuestas Qualtrics)
+
+# ── Embeddings open-source (Paso 8) ──────────────────────────────────────────
+sentence-transformers>=2.7.0  # BGE / E5 / Instructor (Assignment Step 2)
+# torch se instala como dependencia de sentence-transformers
+
+# ── Vector store local – simula shards distribuidos (Paso 8) ─────────────────
+chromadb>=0.5.0             # colecciones = shards; en prod → Pinecone multi-index
+
+# ── LLM – query rewriting + respuesta final (Paso 9) ─────────────────────────
+anthropic>=0.30.0           # Claude API
+
+# ── API Layer (Paso 5 – orquestación serverless/containers) ──────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
+# ── Observabilidad (Paso 11) ──────────────────────────────────────────────────
+prometheus-client>=0.20.0   # métricas /metrics endpoint
+structlog>=24.0.0           # logs estructurados por shard
+
+# ── Re-ranking (Paso 9) ──────────────────────────────────────────────────────
+# cross-encoder cargado también desde sentence-transformers (mismo paquete)
+
+# ── LLM local (Paso 9: query rewriting + respuesta generativa) ───────────────
+ollama>=0.3.0               # cliente Python para Ollama (local, sin costo)
+
+# ── Utilidades ────────────────────────────────────────────────────────────────
+pyyaml>=6.0.0
+python-dotenv>=1.0.0
+tqdm>=4.66.0

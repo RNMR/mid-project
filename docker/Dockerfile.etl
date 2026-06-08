@@ -1,0 +1,61 @@
+# ============================================================
+# Dockerfile.etl
+# Paso 4 – Contenerización: ingestor documental + chunker + embedding generator
+#
+# Multi-stage build (assignment: "Multi-stage, non-root, slim base images")
+# Stage 1: builder  – instala dependencias con pip
+# Stage 2: runtime  – imagen slim sin build tools
+# ============================================================
+
+# ── Stage 1: builder ──────────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+# Instalar dependencias del sistema para pdfplumber
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpoppler-cpp-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+# Paso 4: non-root user
+RUN groupadd -r etluser && useradd -r -g etluser -m etluser
+
+WORKDIR /app
+
+# Copiar dependencias instaladas del builder
+COPY --from=builder /install /usr/local
+
+# Dependencias del sistema para pdfplumber en runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpoppler-cpp-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiar código fuente (sin datos ni secrets)
+COPY config/     ./config/
+COPY src/        ./src/
+COPY run_etl.py  ./
+
+# Crear directorio de datos con permisos correctos
+RUN mkdir -p /data/chroma_db && chown -R etluser:etluser /data /app
+
+USER etluser
+
+# Paso 4: secrets externos – variables de entorno
+# ANTHROPIC_API_KEY, VECTOR_BACKEND, etc. se inyectan en docker-compose.yml
+ENV PYTHONPATH=/app \
+    CHROMA_DB_PATH=/data/chroma_db \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Paso 4: prueba básica del contenedor
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "from src.etl.pipeline import ETLPipeline; print('OK')" || exit 1
+
+ENTRYPOINT ["python", "run_etl.py"]

@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: rag
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      # Ollama en CPU — para GPU agregar resources.limits: nvidia.com/gpu: "1"
+      # y nodeSelector: accelerator: nvidia-tesla-t4
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "4Gi"
+            limits:
+              cpu: "4000m"
+              memory: "8Gi"
+          env:
+            - name: OLLAMA_MODELS
+              value: /models
+          volumeMounts:
+            - name: model-storage
+              mountPath: /models
+          # Precargar llama3.2 al arrancar el pod
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh", "-c", "ollama pull llama3.2"]
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 60   # pull del modelo tarda ~2 min primera vez
+            periodSeconds: 15
+            failureThreshold: 10
+      volumes:
+        - name: model-storage
+          # Para demo/assignment: emptyDir (el modelo se descarga al arrancar el pod)
+          # Para prod: usar PVC con EBS gp3 para persistir el modelo entre reinicios
+          emptyDir:
+            sizeLimit: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+  namespace: rag
+spec:
+  selector:
+    app: ollama
+  ports:
+    - port: 11434
+      targetPort: 11434
+  type: ClusterIP

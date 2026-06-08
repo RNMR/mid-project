@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rag-etl
+  namespace: rag
+  labels:
+    app: rag-etl
+    paso: "5"
+spec:
+  # Re-indexación completa cada domingo a las 2:00 AM (horario Perú UTC-5 = 07:00 UTC)
+  schedule: "0 7 * * 0"
+  concurrencyPolicy: Forbid       # no ejecutar si el anterior aún corre
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 2             # hasta 2 reintentos ante fallo
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: etl
+              image: distributed-rag-etl:latest
+              imagePullPolicy: IfNotPresent
+              command: ["python", "run_etl.py"]
+              envFrom:
+                - configMapRef:
+                    name: rag-config
+              env:
+                - name: ANTHROPIC_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: rag-secrets
+                      key: anthropic-api-key
+              resources:
+                requests:
+                  cpu: "1000m"
+                  memory: "2Gi"
+                limits:
+                  cpu: "4000m"
+                  memory: "6Gi"
+              volumeMounts:
+                - name: source-docs
+                  mountPath: /app/data/sources
+                  readOnly: true
+                - name: chroma-data
+                  mountPath: /app/data/chroma_db
+          volumes:
+            - name: source-docs
+              persistentVolumeClaim:
+                claimName: source-docs-pvc
+            - name: chroma-data
+              persistentVolumeClaim:
+                claimName: chroma-pvc

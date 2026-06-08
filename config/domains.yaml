@@ -1,0 +1,87 @@
+# ============================================================
+# domains.yaml – Definición de dominios y shards
+# Paso 1: Caso de uso empresarial con múltiples dominios documentales
+# Paso 7: Criterios de sharding por dominio (obligatorio según assignment)
+# ============================================================
+#
+# Caso de uso: Sistema RAG para empresa de entretenimiento digital / apuestas
+# (encuestas CES de experiencia de usuario + normativa legal + infraestructura técnica)
+
+domains:
+
+  legal:
+    shard_name: shard_legal
+    description: "Documentos legales y regulatorios – Ley N° 31557 (Perú)"
+    source_dir: "data/sources/LEGAL"
+    file_types: [".pdf"]
+    # SLA y volumen (Paso 1 – KPIs)
+    sla_seconds: 2.0
+    volume_docs: 1
+    needs_sharding: false   # bajo volumen, shard único
+    business_rules:
+      - "Solo documentos oficiales con resolución ministerial"
+      - "Retención mínima 7 años (compliance)"
+      - "Acceso restringido a área legal y compliance"
+    kpis:
+      retrieval_accuracy_target: 0.95
+      latency_p99_ms: 2000
+      reranking_quality_min: 0.85
+
+  technical:
+    shard_name: shard_technical
+    description: "Lineamientos técnicos internos: APIs, BD, Terraform, Git, AWS"
+    source_dir: "data/sources/MANUALES"
+    file_types: [".pdf"]
+    sla_seconds: 1.5
+    volume_docs: 7
+    # Mayor volumen → habilitar sub-sharding semántico en producción (Paso 7)
+    needs_sharding: true
+    sub_shards:
+      - name: shard_technical_cloud    # Terraform, AWS, DynamoDB
+        keywords: ["terraform", "aws", "dynamodb", "cloud", "infraestructura"]
+      - name: shard_technical_devops   # Git, APIs, estándares
+        keywords: ["git", "api", "nomenclatura", "base de datos", "estandar"]
+    business_rules:
+      - "Versión vigente reemplaza versiones anteriores"
+      - "Lineamientos GTI son normativos para toda la organización"
+    kpis:
+      retrieval_accuracy_target: 0.90
+      latency_p99_ms: 1500
+      reranking_quality_min: 0.80
+
+  infrastructure:
+    shard_name: shard_infrastructure
+    description: "Guías de infraestructura: Docker, Kubernetes, AWS Well-Architected"
+    source_dir: "data/sources/DOC WEB"
+    file_types: [".pdf"]
+    sla_seconds: 1.5
+    volume_docs: 3
+    needs_sharding: false
+    business_rules:
+      - "Documentos externos – verificar versiones contra releases oficiales"
+      - "AWS Well-Architected: referencia normativa para diseño cloud"
+    kpis:
+      retrieval_accuracy_target: 0.85
+      latency_p99_ms: 1500
+      reranking_quality_min: 0.75
+
+  operations:
+    shard_name: shard_operations
+    description: "Datos operacionales: encuestas CES apuestas, casino y reporte mensual"
+    source_dir: "data/sources/ENCUESTAS"
+    file_types: [".csv"]
+    sla_seconds: 0.5    # baja latencia: datos calientes / analíticos
+    volume_docs: 3
+    needs_sharding: false
+    # Formato especial: Qualtrics CSV con 3 filas de cabecera
+    csv_format:
+      header_row: 1           # fila 1 (0-indexed): etiquetas en español
+      skip_rows: [0, 2]       # fila 0: códigos, fila 2: ImportId JSON
+      rows_per_chunk: 20      # Paso 7: chunking basado en secciones (grupos de respuestas)
+    business_rules:
+      - "Datos de encuestas anonimizados (sin PII en vector store)"
+      - "Reporte mensual agrega datos históricos del período"
+    kpis:
+      retrieval_accuracy_target: 0.88
+      latency_p99_ms: 500
+      reranking_quality_min: 0.78

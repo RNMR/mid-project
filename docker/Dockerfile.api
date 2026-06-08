@@ -1,0 +1,52 @@
+# ============================================================
+# Dockerfile.api
+# Paso 4 – Contenerización: Retrieval API + Shard Router + Reranker
+# Paso 5 – Orquestación: este contenedor es el servicio principal
+#           → Cloud Run (serverless) o Kubernetes deployment con HPA
+#
+# Multi-stage, non-root, slim base (assignment Step 4)
+# ============================================================
+
+# ── Stage 1: builder ──────────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+# Paso 4: non-root user
+RUN groupadd -r apiuser && useradd -r -g apiuser -m apiuser
+
+WORKDIR /app
+
+COPY --from=builder /install /usr/local
+
+COPY config/  ./config/
+COPY src/     ./src/
+
+# Incluir ChromaDB pre-poblado para despliegue en EKS sin EFS
+# En producción con EFS, reemplazar por un PVC montado en /data/chroma_db
+COPY data/chroma_db/ /data/chroma_db/
+
+RUN mkdir -p /data/chroma_db && chown -R apiuser:apiuser /data /app
+
+USER apiuser
+
+ENV PYTHONPATH=/app \
+    CHROMA_DB_PATH=/data/chroma_db \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8000
+
+# Paso 4: prueba básica
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()" || exit 1
+
+EXPOSE 8000
+
+# Paso 5: uvicorn con workers múltiples para escalabilidad
+# En Kubernetes: HPA escala pods; en Cloud Run: concurrency config
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

@@ -1,0 +1,4 @@
+data/chroma_db
+data/
+*.bin
+*.sqlite3

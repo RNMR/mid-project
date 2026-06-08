@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-config
+  namespace: rag
+data:
+  LOG_LEVEL: "INFO"
+  VECTOR_BACKEND: "chromadb"
+  METRICS_PORT: "9090"
+  OLLAMA_BASE_URL: "http://ollama-service:11434"
+  OLLAMA_MODEL: "llama3.2"
+  AWS_REGION: "us-east-1"
+  REPLICA_REGIONS: "us-west-2"
